@@ -62,6 +62,59 @@ contract WHTest is Test {
         hash = keccak256(abi.encodePacked(keccak256(enc)));
     }
 
+    function encodeVM(
+        uint8 version,
+        uint32 timestamp,
+        uint32 nonce,
+        uint16 emitterChainId,
+        bytes32 emitterAddress,
+        uint64 sequence,
+        uint8 consistencyLevel,
+        bytes memory payload,
+        uint32 guardianSetIndex,
+        Structs.Signature[] memory signatures
+    ) public pure returns (bytes memory enc) {
+        // Start encoding with the version (1 byte)
+        enc = abi.encodePacked(version); // uint8: 1 byte
+
+        // Append guardianSetIndex (uint32: 4 bytes)
+        enc = abi.encodePacked(enc, guardianSetIndex);
+
+        // Append the length of signatures (uint8: 1 byte)
+        uint8 signaturesLength = uint8(signatures.length);
+        enc = abi.encodePacked(enc, signaturesLength);
+
+        // Encode each signature
+        for (uint i = 0; i < signatures.length; i++) {
+            Structs.Signature memory sig = signatures[i];
+
+            // Adjust v to be (v - 27), as per the Python code
+            uint8 vMinus27 = sig.v - 27;
+
+            enc = abi.encodePacked(
+                enc,
+                sig.guardianIndex, // uint8: 1 byte
+                sig.r, // bytes32: 32 bytes
+                sig.s, // bytes32: 32 bytes
+                vMinus27 // uint8: 1 byte
+            );
+        }
+
+        // Encode the last part and compute the hash
+        (, bytes memory lastPart) = encodeLastPartWithHash(
+            timestamp,
+            nonce,
+            emitterChainId,
+            emitterAddress,
+            sequence,
+            consistencyLevel,
+            payload
+        );
+
+        // Append the last part to the encoding
+        enc = abi.encodePacked(enc, lastPart);
+    }
+
     function setUp() public {
         for (uint256 i = 1; i <= 19; i++) {
             pks.push(i);
@@ -227,8 +280,8 @@ contract WHTest is Test {
         assertEq(reason, "");
     }
 
-    function test_zzz() public pure {
-        (bytes32 hash, bytes memory enc) = encodeLastPartWithHash(
+    function test_encodeLastPartWithHash() public pure {
+        (bytes32 h, ) = encodeLastPartWithHash(
             1720525446,
             0,
             4,
@@ -239,7 +292,60 @@ contract WHTest is Test {
             15,
             hex"012712000000000000000000000000f2bc73502283fcac4b047dfe45366d8744daac5b000000d99945ff1000000000000000000000000066cb5a992570ef01b522bc59a056a64a84bd0aaa0000000000000000000000008b715eaf61a7ddf61c67d5d46687c796d1f47146009100000000000000000000000000000000000000000000000000000000000000030000000000000000000000009eb0cb7841e55d3d9caf49df9c61d5d857d17c82004f994e54540800000000000186a00000000000000000000000000b15635fcf5316edfd2a9a0b0dc3700aea4d09e6000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e2712000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000007a1200000000000000000000000000000000000000000000000000000000000e46e7d2712000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e0000000000000000000000007a0a53847776f7e94cc35742971acb2217b0db8100000000000000000000000060a86b97a7596ebfd25fb769053894ed0d9a83660000000000000000000000003a84364d27ed3d16022da0f603f3e0f74826c70700"
         );
-        console.logBytes32(hash);
-        console.logBytes(enc);
+        assertEq(
+            h,
+            0xaf22a57cc835b0847c0eb8ad84a9d4c4743e49fc6eaa1355f603d1a66373626d
+        );
+    }
+
+    function test_encodeVM() public view {
+        uint8 version = 1;
+        uint32 timestamp = 1720525446;
+        uint32 nonce = 0;
+        uint16 emitterChainId = 4;
+        bytes32 emitterAddress = 0x00000000000000000000000080ac94316391752a193c1c47e27d382b507c93f3;
+        uint64 sequence = 6680;
+        uint8 consistencyLevel = 15;
+        bytes
+            memory payload = hex"012712000000000000000000000000f2bc73502283fcac4b047dfe45366d8744daac5b000000d99945ff1000000000000000000000000066cb5a992570ef01b522bc59a056a64a84bd0aaa0000000000000000000000008b715eaf61a7ddf61c67d5d46687c796d1f47146009100000000000000000000000000000000000000000000000000000000000000030000000000000000000000009eb0cb7841e55d3d9caf49df9c61d5d857d17c82004f994e54540800000000000186a00000000000000000000000000b15635fcf5316edfd2a9a0b0dc3700aea4d09e6000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e2712000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000007a1200000000000000000000000000000000000000000000000000000000000e46e7d2712000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e0000000000000000000000007a0a53847776f7e94cc35742971acb2217b0db8100000000000000000000000060a86b97a7596ebfd25fb769053894ed0d9a83660000000000000000000000003a84364d27ed3d16022da0f603f3e0f74826c70700";
+        uint32 guardianSetIndex = 0;
+        (bytes32 h, ) = encodeLastPartWithHash(
+            timestamp,
+            nonce,
+            emitterChainId,
+            emitterAddress,
+            sequence,
+            consistencyLevel,
+            payload
+        );
+        Structs.Signature[] memory signatures = gen_sigs(h);
+        bytes memory enc = encodeVM(
+            version,
+            timestamp,
+            nonce,
+            emitterChainId,
+            emitterAddress,
+            sequence,
+            consistencyLevel,
+            payload,
+            guardianSetIndex,
+            signatures
+        );
+
+        Structs.VM memory vm = w_eth.parseVM(enc);
+        assertEq(vm.version, version);
+        assertEq(vm.timestamp, timestamp);
+        assertEq(vm.nonce, nonce);
+        assertEq(vm.emitterChainId, emitterChainId);
+        assertEq(vm.emitterAddress, emitterAddress);
+        assertEq(vm.sequence, sequence);
+        assertEq(vm.consistencyLevel, consistencyLevel);
+        assertEq(keccak256(vm.payload), keccak256(payload));
+        assertEq(vm.guardianSetIndex, guardianSetIndex);
+        assertEq(
+            keccak256(abi.encode(vm.signatures)),
+            keccak256(abi.encode(signatures))
+        );
+        assertEq(vm.hash, h);
     }
 }
