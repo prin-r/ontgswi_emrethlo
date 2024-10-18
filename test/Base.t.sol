@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Test, console, Vm} from "forge-std/Test.sol";
 import "../src/Types.sol";
 import {WormholeRelayer} from "../src/WormholeRelayer.sol";
-import {Wormhole} from "../src/Wormhole.sol";
+import {Wormhole, Structs} from "../src/Wormhole.sol";
 import {DeliveryProvider} from "../src/DeliveryProvider.sol";
 
 contract WHTest is Test {
@@ -16,7 +16,57 @@ contract WHTest is Test {
     Wormhole public w_bsc;
     DeliveryProvider public dp_bsc;
 
+    uint256[] public pks;
+
+    function gen_guardian_set(
+        uint32 expirationTime
+    ) private view returns (Structs.GuardianSet memory gs) {
+        gs.expirationTime = expirationTime;
+        gs.keys = new address[](pks.length);
+        for (uint256 i = 0; i < pks.length; i++) {
+            gs.keys[i] = vm.addr(pks[i]);
+        }
+    }
+
+    function gen_sigs(
+        bytes32 h
+    ) private view returns (Structs.Signature[] memory sigs) {
+        sigs = new Structs.Signature[](pks.length);
+        for (uint256 i = 0; i < pks.length; i++) {
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(pks[i], h);
+            sigs[i].guardianIndex = uint8(i);
+            sigs[i].r = r;
+            sigs[i].s = s;
+            sigs[i].v = v;
+        }
+    }
+
+    function encodeLastPartWithHash(
+        uint32 timestamp,
+        uint32 nonce,
+        uint16 emitterChainId,
+        bytes32 emitterAddress,
+        uint64 sequence,
+        uint8 consistencyLevel,
+        bytes memory payload
+    ) private pure returns (bytes32 hash, bytes memory enc) {
+        enc = abi.encodePacked(
+            timestamp,
+            nonce,
+            emitterChainId,
+            emitterAddress,
+            sequence,
+            consistencyLevel,
+            payload
+        );
+        hash = keccak256(abi.encodePacked(keccak256(enc)));
+    }
+
     function setUp() public {
+        for (uint256 i = 1; i <= 19; i++) {
+            pks.push(i);
+        }
+
         w_eth = new Wormhole();
         w_eth.setChainIDs(2, 1);
         w_eth.initialize();
@@ -46,7 +96,7 @@ contract WHTest is Test {
         wr_bsc.initialize(address(dp_bsc));
     }
 
-    function test_1() public view {
+    function test_querying_fees() public view {
         uint16 targetChain = 4;
         TargetNative receiverValue = TargetNative.wrap(0);
         Gas gasLimit = Gas.wrap(100_000);
@@ -79,8 +129,9 @@ contract WHTest is Test {
         );
     }
 
-    function test_2() public {
+    function test_sending_from_source() public {
         uint64 sequence;
+        uint256 g;
 
         // ETH ------------------------------------------------------------
         uint16 targetChain = 4;
@@ -89,36 +140,18 @@ contract WHTest is Test {
         TargetNative receiverValue = TargetNative.wrap(0);
         Gas gasLimit = Gas.wrap(100_000);
 
-        uint256 g = gasleft();
-        sequence = wr_eth.sendPayloadToEvm{value: 100_000}(
-            targetChain,
-            targetAddress,
-            payload,
-            receiverValue,
-            gasLimit
-        );
-        console.log("ETH-1. GAS USED = ", g - gasleft());
-        assertEq(sequence, 0);
-        g = gasleft();
-        sequence = wr_eth.sendPayloadToEvm{value: 100_000}(
-            targetChain,
-            targetAddress,
-            payload,
-            receiverValue,
-            gasLimit
-        );
-        console.log("ETH-2. GAS USED = ", g - gasleft());
-        assertEq(sequence, 1);
-        g = gasleft();
-        sequence = wr_eth.sendPayloadToEvm{value: 100_000}(
-            targetChain,
-            targetAddress,
-            payload,
-            receiverValue,
-            gasLimit
-        );
-        console.log("ETH-3. GAS USED = ", g - gasleft());
-        assertEq(sequence, 2);
+        for (uint256 i = 0; i < 3; i++) {
+            g = gasleft();
+            sequence = wr_eth.sendPayloadToEvm{value: 100_000}(
+                targetChain,
+                targetAddress,
+                payload,
+                receiverValue,
+                gasLimit
+            );
+            console.log("ETH (index, gasUsed) = ", i, g - gasleft());
+            assertEq(sequence, i);
+        }
 
         // BSC ------------------------------------------------------------
         targetChain = 2;
@@ -127,39 +160,21 @@ contract WHTest is Test {
         receiverValue = TargetNative.wrap(0);
         gasLimit = Gas.wrap(100_000);
 
-        g = gasleft();
-        sequence = wr_bsc.sendPayloadToEvm{value: 100_000}(
-            targetChain,
-            targetAddress,
-            payload,
-            receiverValue,
-            gasLimit
-        );
-        console.log("BSC-1. GAS USED = ", g - gasleft());
-        assertEq(sequence, 0);
-        g = gasleft();
-        sequence = wr_bsc.sendPayloadToEvm{value: 100_000}(
-            targetChain,
-            targetAddress,
-            payload,
-            receiverValue,
-            gasLimit
-        );
-        console.log("BSC-2. GAS USED = ", g - gasleft());
-        assertEq(sequence, 1);
-        g = gasleft();
-        sequence = wr_bsc.sendPayloadToEvm{value: 100_000}(
-            targetChain,
-            targetAddress,
-            payload,
-            receiverValue,
-            gasLimit
-        );
-        console.log("BSC-3. GAS USED = ", g - gasleft());
-        assertEq(sequence, 2);
+        for (uint256 i = 0; i < 3; i++) {
+            g = gasleft();
+            sequence = wr_bsc.sendPayloadToEvm{value: 100_000}(
+                targetChain,
+                targetAddress,
+                payload,
+                receiverValue,
+                gasLimit
+            );
+            console.log("BSC (index, gasUsed) = ", i, g - gasleft());
+            assertEq(sequence, i);
+        }
     }
 
-    function test_3() public {
+    function test_getting_logs_and_print() public {
         uint64 sequence;
 
         // Logging ------------------------------------------------------------
@@ -183,5 +198,48 @@ contract WHTest is Test {
             console.logBytes32(logs[i].topics[0]);
             console.logBytes(logs[i].data);
         }
+    }
+
+    function test_deriving_pk_and_sign_and_verify() public view {
+        bytes32 h = keccak256(
+            abi.encodePacked("some random message to be signed by the signers")
+        );
+        for (uint256 i = 0; i < pks.length; i++) {
+            uint256 pk = pks[i];
+            address signerAddress = vm.addr(pk);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, h);
+            assertEq(signerAddress, ecrecover(h, v, r, s));
+        }
+    }
+
+    function test_verifying_sigs_by_wh_core() public view {
+        bytes32 h = keccak256(
+            abi.encodePacked("some random message to be signed by the signers")
+        );
+        Structs.GuardianSet memory guardianSet = gen_guardian_set(0);
+        Structs.Signature[] memory signatures = gen_sigs(h);
+        (bool valid, string memory reason) = w_eth.verifySignatures(
+            h,
+            signatures,
+            guardianSet
+        );
+        assertEq(valid, true);
+        assertEq(reason, "");
+    }
+
+    function test_zzz() public pure {
+        (bytes32 hash, bytes memory enc) = encodeLastPartWithHash(
+            1720525446,
+            0,
+            4,
+            bytes32(
+                uint256(uint160(0x80aC94316391752A193C1c47E27D382b507c93F3))
+            ),
+            6680,
+            15,
+            hex"012712000000000000000000000000f2bc73502283fcac4b047dfe45366d8744daac5b000000d99945ff1000000000000000000000000066cb5a992570ef01b522bc59a056a64a84bd0aaa0000000000000000000000008b715eaf61a7ddf61c67d5d46687c796d1f47146009100000000000000000000000000000000000000000000000000000000000000030000000000000000000000009eb0cb7841e55d3d9caf49df9c61d5d857d17c82004f994e54540800000000000186a00000000000000000000000000b15635fcf5316edfd2a9a0b0dc3700aea4d09e6000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e2712000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000007a1200000000000000000000000000000000000000000000000000000000000e46e7d2712000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e0000000000000000000000007a0a53847776f7e94cc35742971acb2217b0db8100000000000000000000000060a86b97a7596ebfd25fb769053894ed0d9a83660000000000000000000000003a84364d27ed3d16022da0f603f3e0f74826c70700"
+        );
+        console.logBytes32(hash);
+        console.logBytes(enc);
     }
 }
