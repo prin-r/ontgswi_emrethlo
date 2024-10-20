@@ -562,8 +562,12 @@ contract WHTest is Test {
         vm.prank(alice);
         vm.recordLogs();
         gg = gasleft();
-        cct_eth.sendTokens{value: gasLimit}(targetChain, 100, Gas.wrap(gasLimit));
-        console.log("sendTokens's gasUsed = ", gg - gasleft());
+        cct_eth.sendTokens{value: gasLimit}(
+            targetChain,
+            100,
+            Gas.wrap(gasLimit)
+        );
+        console.log("ETH: sendTokens's gasUsed = ", gg - gasleft());
         assertEq(cct_eth.balanceOf(alice), 100);
         // Send on ETH ------------------------------------------------------------
 
@@ -633,7 +637,7 @@ contract WHTest is Test {
             payable(address(0)),
             hex""
         );
-        console.log("deliver's gasUsed = ", gg - gasleft());
+        console.log("BSC: deliver's gasUsed = ", gg - gasleft());
         assertEq(cct_bsc.balanceOf(alice), 100);
 
         logs = vm.getRecordedLogs();
@@ -657,11 +661,18 @@ contract WHTest is Test {
                     logs[i].topics[2]
                 );
                 assertEq(bytes32(uint256(sequence)), logs[i].topics[3]);
-                (bytes32 deliveryVaaHash, uint8 status, uint256 gasUsed, , , ) = abi.decode(
-                    logs[i].data,
-                    (bytes32, uint8, uint256, uint8, bytes, bytes)
-                );
-                console.log("CCT's gasUsed = ", gasUsed);
+                (
+                    bytes32 deliveryVaaHash,
+                    uint8 status,
+                    uint256 gasUsed,
+                    ,
+                    ,
+
+                ) = abi.decode(
+                        logs[i].data,
+                        (bytes32, uint8, uint256, uint8, bytes, bytes)
+                    );
+                console.log("BSC: CCT's gasUsed = ", gasUsed);
                 assertEq(deliveryVaaHash, h);
                 assertEq(
                     status,
@@ -679,12 +690,149 @@ contract WHTest is Test {
                     bytes32(uint256(uint16(w_eth.chainId()))),
                     logs[i].topics[2]
                 );
-                (uint256 _amount) = abi.decode(logs[i].data, (uint256));
+                uint256 _amount = abi.decode(logs[i].data, (uint256));
                 assertEq(_amount, 100);
             }
         }
         // Deliver on BSC ------------------------------------------------------------
 
-        
+        // Send on BSC ------------------------------------------------------------
+        targetChain = 2;
+        gasLimit = 60_000;
+
+        assertEq(cct_bsc.balanceOf(alice), 100);
+        assertEq(address(cct_bsc.wormholeRelayer()), address(wr_bsc));
+
+        vm.prank(alice);
+        vm.recordLogs();
+        gg = gasleft();
+        cct_bsc.sendTokens{value: gasLimit}(
+            targetChain,
+            50,
+            Gas.wrap(gasLimit)
+        );
+        console.log("BSC: sendTokens's gasUsed = ", gg - gasleft());
+        assertEq(cct_bsc.balanceOf(alice), 50);
+        // Send on BSC ------------------------------------------------------------
+
+        // off-chain ------------------------------------------------------------
+        logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(w_bsc)) {
+                logData = logs[i].data;
+            } else if (
+                logs[i].emitter == address(cct_bsc) &&
+                logs[i].topics[0] ==
+                keccak256(
+                    abi.encodePacked("TokenSent(address,uint16,uint256,uint64)")
+                )
+            ) {
+                assertEq(logs[i].topics[1], bytes32(uint256(uint160(alice))));
+                assertEq(logs[i].topics[2], bytes32(uint256(targetChain)));
+                (uint256 _amount, uint64 _sequence) = abi.decode(
+                    logs[i].data,
+                    (uint256, uint64)
+                );
+                assertEq(_amount, 50);
+                assertEq(_sequence, 0);
+            }
+        }
+        (sequence, nonce, instruction, consistencyLevel) = abi.decode(
+            logData,
+            (uint64, uint32, bytes, uint8)
+        );
+        assertEq(sequence, 0);
+        assertEq(nonce, 0);
+        (h, ) = encodeLastPartWithHash(
+            uint32(block.timestamp),
+            nonce,
+            w_bsc.chainId(),
+            bytes32(uint256(uint160(address(w_bsc)))),
+            sequence,
+            consistencyLevel,
+            instruction
+        );
+        signatures = gen_sigs(h);
+        enc = encodeVM(
+            uint8(1),
+            uint32(block.timestamp),
+            nonce,
+            w_bsc.chainId(),
+            bytes32(uint256(uint160(address(w_bsc)))),
+            sequence,
+            consistencyLevel,
+            instruction,
+            uint32(0),
+            signatures
+        );
+        // off-chain ------------------------------------------------------------
+
+        // Deliver on ETH ------------------------------------------------------------
+        assertEq(cct_eth.balanceOf(alice), 100);
+        gg = gasleft();
+        wr_eth.deliver{value: gasLimit}(
+            new bytes[](0),
+            enc,
+            payable(address(0)),
+            hex""
+        );
+        console.log("ETH: deliver's gasUsed = ", gg - gasleft());
+        assertEq(cct_eth.balanceOf(alice), 150);
+
+        logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(wr_eth)) {
+                assertEq(logs[i].topics.length, 4);
+                assertEq(
+                    logs[i].topics[0],
+                    keccak256(
+                        abi.encodePacked(
+                            "Delivery(address,uint16,uint64,bytes32,uint8,uint256,uint8,bytes,bytes)"
+                        )
+                    )
+                );
+                assertEq(
+                    bytes32(uint256(uint160(address(cct_eth)))),
+                    logs[i].topics[1]
+                );
+                assertEq(
+                    bytes32(uint256(uint16(w_bsc.chainId()))),
+                    logs[i].topics[2]
+                );
+                assertEq(bytes32(uint256(sequence)), logs[i].topics[3]);
+                (
+                    bytes32 deliveryVaaHash,
+                    uint8 status,
+                    uint256 gasUsed,
+                    ,
+                    ,
+
+                ) = abi.decode(
+                        logs[i].data,
+                        (bytes32, uint8, uint256, uint8, bytes, bytes)
+                    );
+                console.log("ETH: CCT's gasUsed = ", gasUsed);
+                assertEq(deliveryVaaHash, h);
+                assertEq(
+                    status,
+                    uint8(IWormholeRelayerDelivery.DeliveryStatus.SUCCESS)
+                );
+            } else if (
+                logs[i].emitter == address(cct_eth) &&
+                logs[i].topics[0] ==
+                keccak256(
+                    abi.encodePacked("TokenReceived(address,uint16,uint256)")
+                )
+            ) {
+                assertEq(bytes32(uint256(uint160(alice))), logs[i].topics[1]);
+                assertEq(
+                    bytes32(uint256(uint16(w_bsc.chainId()))),
+                    logs[i].topics[2]
+                );
+                uint256 _amount = abi.decode(logs[i].data, (uint256));
+                assertEq(_amount, 50);
+            }
+        }
+        // Deliver on ETH ------------------------------------------------------------
     }
 }
