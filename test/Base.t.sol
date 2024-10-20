@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test, console, Vm} from "forge-std/Test.sol";
 import "../src/Types.sol";
-import {WormholeRelayer} from "../src/WormholeRelayer.sol";
+import {WormholeRelayer, DeliveryInstruction} from "../src/WormholeRelayer.sol";
 import {Wormhole, Structs} from "../src/Wormhole.sol";
 import {DeliveryProvider} from "../src/DeliveryProvider.sol";
 
@@ -115,6 +115,34 @@ contract WHTest is Test {
         enc = abi.encodePacked(enc, lastPart);
     }
 
+    // uint16 targetChain, bytes32 targetAddress, bytes memory payload,
+
+    function encode(
+        DeliveryInstruction memory strct
+    ) private pure returns (bytes memory encoded) {
+        encoded = abi.encodePacked(
+            uint8(1),
+            strct.targetChain,
+            strct.targetAddress,
+            abi.encodePacked(uint32(strct.payload.length), strct.payload),
+            uint256(0),
+            uint256(0)
+        );
+        encoded = abi.encodePacked(
+            encoded,
+            abi.encodePacked(
+                uint32(strct.encodedExecutionInfo.length),
+                strct.encodedExecutionInfo
+            ),
+            strct.refundChain,
+            strct.refundAddress,
+            strct.refundDeliveryProvider,
+            strct.sourceDeliveryProvider,
+            strct.senderAddress,
+            abi.encodePacked(uint8(0))
+        );
+    }
+
     function setUp() public {
         for (uint256 i = 1; i <= 19; i++) {
             pks.push(i);
@@ -123,6 +151,7 @@ contract WHTest is Test {
         w_eth = new Wormhole();
         w_eth.setChainIDs(2, 1);
         w_eth.initialize();
+        w_eth.setGuardianSet(0, gen_guardian_set(type(uint32).max));
         dp_eth = new DeliveryProvider();
         dp_eth.setAssetConversionBufferPub(4, 0, 1);
         dp_eth.setAssetConversionBufferPub(2, 0, 1);
@@ -137,6 +166,7 @@ contract WHTest is Test {
         w_bsc = new Wormhole();
         w_bsc.setChainIDs(4, 56);
         w_bsc.initialize();
+        w_bsc.setGuardianSet(0, gen_guardian_set(type(uint32).max));
         dp_bsc = new DeliveryProvider();
         dp_bsc.setAssetConversionBufferPub(4, 0, 1);
         dp_bsc.setAssetConversionBufferPub(2, 0, 1);
@@ -233,7 +263,7 @@ contract WHTest is Test {
         // Logging ------------------------------------------------------------
         uint16 targetChain = 4;
         address targetAddress = 0xaD5db72456E417bb51d9e89425e6B2b9602dfc78;
-        bytes memory payload = abi.encode(msg.sender, 100);
+        bytes memory payload = abi.encode(msg.sender, 12345678);
         TargetNative receiverValue = TargetNative.wrap(0);
         Gas gasLimit = Gas.wrap(100_000);
 
@@ -248,8 +278,19 @@ contract WHTest is Test {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i = 0; i < logs.length; i++) {
             console.log("Log emitted from contract:", logs[i].emitter);
-            console.logBytes32(logs[i].topics[0]);
-            console.logBytes(logs[i].data);
+            if (logs[i].emitter == address(w_eth)) {
+                (uint64 s2, uint32 n, bytes memory p, uint8 c) = abi.decode(
+                    logs[i].data,
+                    (uint64, uint32, bytes, uint8)
+                );
+                console.log("sender = ");
+                console.logBytes32(logs[i].topics[1]);
+                console.log("sequence = ", s2);
+                console.log("nonce = ", n);
+                console.logBytes(p);
+                console.log("consistencyLevel = ", c);
+            }
+            console.log("_____________________________________________");
         }
     }
 
@@ -347,5 +388,142 @@ contract WHTest is Test {
             keccak256(abi.encode(signatures))
         );
         assertEq(vm.hash, h);
+    }
+
+    function test_verifyVM() public {
+        Structs.VM memory vm;
+        vm.version = 1;
+        vm.timestamp = 1720525446;
+        vm.nonce = 0;
+        vm.emitterChainId = 4;
+        vm
+            .emitterAddress = 0x00000000000000000000000080ac94316391752a193c1c47e27d382b507c93f3;
+        vm.sequence = 6680;
+        vm.consistencyLevel = 15;
+        vm
+            .payload = hex"012712000000000000000000000000f2bc73502283fcac4b047dfe45366d8744daac5b000000d99945ff1000000000000000000000000066cb5a992570ef01b522bc59a056a64a84bd0aaa0000000000000000000000008b715eaf61a7ddf61c67d5d46687c796d1f47146009100000000000000000000000000000000000000000000000000000000000000030000000000000000000000009eb0cb7841e55d3d9caf49df9c61d5d857d17c82004f994e54540800000000000186a00000000000000000000000000b15635fcf5316edfd2a9a0b0dc3700aea4d09e6000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e2712000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000007a1200000000000000000000000000000000000000000000000000000000000e46e7d2712000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e0000000000000000000000007a0a53847776f7e94cc35742971acb2217b0db8100000000000000000000000060a86b97a7596ebfd25fb769053894ed0d9a83660000000000000000000000003a84364d27ed3d16022da0f603f3e0f74826c70700";
+        vm.guardianSetIndex = 0;
+        vm
+            .hash = 0xaf22a57cc835b0847c0eb8ad84a9d4c4743e49fc6eaa1355f603d1a66373626d;
+        vm.signatures = gen_sigs(vm.hash);
+        (bool valid, ) = w_eth.verifyVM(vm);
+        assertEq(valid, true);
+    }
+
+    function test_parseAndVerifyVM() public {
+        uint8 version = 1;
+        uint32 timestamp = 1720525446;
+        uint32 nonce = 0;
+        uint16 emitterChainId = 4;
+        bytes32 emitterAddress = 0x00000000000000000000000080ac94316391752a193c1c47e27d382b507c93f3;
+        uint64 sequence = 6680;
+        uint8 consistencyLevel = 15;
+        bytes
+            memory payload = hex"012712000000000000000000000000f2bc73502283fcac4b047dfe45366d8744daac5b000000d99945ff1000000000000000000000000066cb5a992570ef01b522bc59a056a64a84bd0aaa0000000000000000000000008b715eaf61a7ddf61c67d5d46687c796d1f47146009100000000000000000000000000000000000000000000000000000000000000030000000000000000000000009eb0cb7841e55d3d9caf49df9c61d5d857d17c82004f994e54540800000000000186a00000000000000000000000000b15635fcf5316edfd2a9a0b0dc3700aea4d09e6000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e2712000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000007a1200000000000000000000000000000000000000000000000000000000000e46e7d2712000000000000000000000000418629cfb2f5616ca47e3febfcf28c43321a1a4e0000000000000000000000007a0a53847776f7e94cc35742971acb2217b0db8100000000000000000000000060a86b97a7596ebfd25fb769053894ed0d9a83660000000000000000000000003a84364d27ed3d16022da0f603f3e0f74826c70700";
+        uint32 guardianSetIndex = 0;
+        (bytes32 h, ) = encodeLastPartWithHash(
+            timestamp,
+            nonce,
+            emitterChainId,
+            emitterAddress,
+            sequence,
+            consistencyLevel,
+            payload
+        );
+        Structs.Signature[] memory signatures = gen_sigs(h);
+        bytes memory enc = encodeVM(
+            version,
+            timestamp,
+            nonce,
+            emitterChainId,
+            emitterAddress,
+            sequence,
+            consistencyLevel,
+            payload,
+            guardianSetIndex,
+            signatures
+        );
+
+        (Structs.VM memory vm, bool valid, ) = w_eth.parseAndVerifyVM(enc);
+        assertEq(vm.version, version);
+        assertEq(vm.timestamp, timestamp);
+        assertEq(vm.nonce, nonce);
+        assertEq(vm.emitterChainId, emitterChainId);
+        assertEq(vm.emitterAddress, emitterAddress);
+        assertEq(vm.sequence, sequence);
+        assertEq(vm.consistencyLevel, consistencyLevel);
+        assertEq(keccak256(vm.payload), keccak256(payload));
+        assertEq(vm.guardianSetIndex, guardianSetIndex);
+        assertEq(
+            keccak256(abi.encode(vm.signatures)),
+            keccak256(abi.encode(signatures))
+        );
+        assertEq(vm.hash, h);
+        assertEq(valid, true);
+    }
+
+    function test_deliver() public {
+        // Logging ------------------------------------------------------------
+        uint16 targetChain = 4;
+        address targetAddress = 0xaD5db72456E417bb51d9e89425e6B2b9602dfc78;
+        TargetNative receiverValue = TargetNative.wrap(0);
+        Gas gasLimit = Gas.wrap(100_000);
+
+        vm.recordLogs();
+        uint64 sequence = wr_eth.sendPayloadToEvm{value: 100_000}(
+            targetChain,
+            targetAddress,
+            abi.encode(msg.sender, 12345678),
+            receiverValue,
+            gasLimit
+        );
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes memory logData;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(w_eth)) {
+                logData = logs[i].data;
+            }
+        }
+
+        (
+            uint64 s,
+            uint32 nonce,
+            bytes memory instruction,
+            uint8 consistencyLevel
+        ) = abi.decode(logData, (uint64, uint32, bytes, uint8));
+        assertEq(sequence, s);
+        assertEq(nonce, 0);
+
+        (bytes32 h, ) = encodeLastPartWithHash(
+            uint32(1720525446),
+            nonce,
+            uint16(2),
+            bytes32(uint256(uint160(address(w_eth)))),
+            sequence,
+            consistencyLevel,
+            instruction
+        );
+        Structs.Signature[] memory signatures = gen_sigs(h);
+        bytes memory enc = encodeVM(
+            uint8(1),
+            uint32(1720525446),
+            nonce,
+            uint16(2),
+            bytes32(uint256(uint160(address(w_eth)))),
+            sequence,
+            consistencyLevel,
+            instruction,
+            uint32(0),
+            signatures
+        );
+
+        wr_bsc.setEmitter(uint16(2), bytes32(uint256(uint160(address(w_eth)))));
+
+        wr_bsc.deliver{value: 100000}(
+            new bytes[](0),
+            enc,
+            payable(address(0)),
+            hex""
+        );
     }
 }
