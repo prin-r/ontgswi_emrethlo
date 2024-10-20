@@ -1607,8 +1607,12 @@ pub fn identifier_from_hex_string(hex_str: &str) -> Identifier {
     Identifier::try_from(scalar_value).unwrap()
 }
 
-// Edit from 
+// main.rs
+pub mod identifier_utils;
+
+// aggregator.rs & public_key_package.rs
+//// Edit from 
 let id = Identifier::derive(signer_id.as_bytes())?;
-// To
+//// To
 let id = identifier_from_hex_string(&signer_id);
 ```
