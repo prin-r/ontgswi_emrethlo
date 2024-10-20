@@ -3,12 +3,14 @@ pragma solidity ^0.8.13;
 
 import {Test, console, Vm} from "forge-std/Test.sol";
 import "../src/Types.sol";
-import {WormholeRelayer} from "../src/WormholeRelayer.sol";
+import {WormholeRelayer, IWormholeRelayerDelivery} from "../src/WormholeRelayer.sol";
 import {Wormhole, Structs} from "../src/Wormhole.sol";
 import {DeliveryProvider} from "../src/DeliveryProvider.sol";
 import {CrossChainToken} from "../src/CCToken.sol";
 
 contract WHTest is Test {
+    address public alice;
+
     CrossChainToken public cct_eth;
     WormholeRelayer public wr_eth;
     Wormhole public w_eth;
@@ -106,6 +108,10 @@ contract WHTest is Test {
     }
 
     function setUp() public {
+        alice = address(0xaa);
+        vm.label(alice, "Alice");
+        vm.deal(alice, 10 ether);
+
         for (uint256 i = 1; i <= 19; i++) {
             pks.push(i);
         }
@@ -150,8 +156,13 @@ contract WHTest is Test {
             address(wr_bsc)
         );
 
-        wr_bsc.setEmitter(uint16(2), bytes32(uint256(uint160(address(w_eth)))));
         wr_eth.setEmitter(uint16(4), bytes32(uint256(uint160(address(w_bsc)))));
+        cct_eth.registerContract(4, address(cct_bsc));
+
+        wr_bsc.setEmitter(uint16(2), bytes32(uint256(uint160(address(w_eth)))));
+        cct_bsc.registerContract(2, address(cct_eth));
+
+        cct_eth.mint(alice, 200);
     }
 
     function test_querying_fees() public view {
@@ -475,7 +486,7 @@ contract WHTest is Test {
         (bytes32 h, ) = encodeLastPartWithHash(
             uint32(1720525446),
             nonce,
-            uint16(2),
+            w_eth.chainId(),
             bytes32(uint256(uint160(address(w_eth)))),
             sequence,
             consistencyLevel,
@@ -486,7 +497,7 @@ contract WHTest is Test {
             uint8(1),
             uint32(1720525446),
             nonce,
-            uint16(2),
+            w_eth.chainId(),
             bytes32(uint256(uint160(address(w_eth)))),
             sequence,
             consistencyLevel,
@@ -494,11 +505,9 @@ contract WHTest is Test {
             uint32(0),
             signatures
         );
-
         // off-chain ------------------------------------------------------------
 
         // Deliver ------------------------------------------------------------
-
         wr_bsc.deliver{value: 100000}(
             new bytes[](0),
             enc,
@@ -506,6 +515,176 @@ contract WHTest is Test {
             hex""
         );
 
+        logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(wr_bsc)) {
+                assertEq(logs[i].topics.length, 4);
+                assertEq(
+                    logs[i].topics[0],
+                    keccak256(
+                        abi.encodePacked(
+                            "Delivery(address,uint16,uint64,bytes32,uint8,uint256,uint8,bytes,bytes)"
+                        )
+                    )
+                );
+                assertEq(
+                    bytes32(uint256(uint160(targetAddress))),
+                    logs[i].topics[1]
+                );
+                assertEq(
+                    bytes32(uint256(uint16(w_eth.chainId()))),
+                    logs[i].topics[2]
+                );
+                assertEq(bytes32(uint256(sequence)), logs[i].topics[3]);
+                (bytes32 deliveryVaaHash, uint8 status, , , , ) = abi.decode(
+                    logs[i].data,
+                    (bytes32, uint8, uint256, uint8, bytes, bytes)
+                );
+                assertEq(deliveryVaaHash, h);
+                assertEq(
+                    status,
+                    uint8(IWormholeRelayerDelivery.DeliveryStatus.SUCCESS)
+                );
+            }
+        }
         // Deliver ------------------------------------------------------------
+    }
+
+    function test_send_cct_and_deliver_cct() public {
+        uint256 gg;
+        // Send on ETH ------------------------------------------------------------
+        uint16 targetChain = 4;
+        uint256 gasLimit = 60_000;
+
+        assertEq(cct_eth.balanceOf(alice), 200);
+        assertEq(address(cct_eth.wormholeRelayer()), address(wr_eth));
+
+        vm.prank(alice);
+        vm.recordLogs();
+        gg = gasleft();
+        cct_eth.sendTokens{value: gasLimit}(targetChain, 100, Gas.wrap(gasLimit));
+        console.log("sendTokens's gasUsed = ", gg - gasleft());
+        assertEq(cct_eth.balanceOf(alice), 100);
+        // Send on ETH ------------------------------------------------------------
+
+        // off-chain ------------------------------------------------------------
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes memory logData;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(w_eth)) {
+                logData = logs[i].data;
+            } else if (
+                logs[i].emitter == address(cct_eth) &&
+                logs[i].topics[0] ==
+                keccak256(
+                    abi.encodePacked("TokenSent(address,uint16,uint256,uint64)")
+                )
+            ) {
+                assertEq(logs[i].topics[1], bytes32(uint256(uint160(alice))));
+                assertEq(logs[i].topics[2], bytes32(uint256(targetChain)));
+                (uint256 _amount, uint64 _sequence) = abi.decode(
+                    logs[i].data,
+                    (uint256, uint64)
+                );
+                assertEq(_amount, 100);
+                assertEq(_sequence, 0);
+            }
+        }
+
+        (
+            uint64 sequence,
+            uint32 nonce,
+            bytes memory instruction,
+            uint8 consistencyLevel
+        ) = abi.decode(logData, (uint64, uint32, bytes, uint8));
+        assertEq(sequence, 0);
+        assertEq(nonce, 0);
+
+        (bytes32 h, ) = encodeLastPartWithHash(
+            uint32(block.timestamp),
+            nonce,
+            w_eth.chainId(),
+            bytes32(uint256(uint160(address(w_eth)))),
+            sequence,
+            consistencyLevel,
+            instruction
+        );
+        Structs.Signature[] memory signatures = gen_sigs(h);
+        bytes memory enc = encodeVM(
+            uint8(1),
+            uint32(block.timestamp),
+            nonce,
+            w_eth.chainId(),
+            bytes32(uint256(uint160(address(w_eth)))),
+            sequence,
+            consistencyLevel,
+            instruction,
+            uint32(0),
+            signatures
+        );
+        // off-chain ------------------------------------------------------------
+
+        // Deliver on BSC ------------------------------------------------------------
+        assertEq(cct_bsc.balanceOf(alice), 0);
+        gg = gasleft();
+        wr_bsc.deliver{value: gasLimit}(
+            new bytes[](0),
+            enc,
+            payable(address(0)),
+            hex""
+        );
+        console.log("deliver's gasUsed = ", gg - gasleft());
+        assertEq(cct_bsc.balanceOf(alice), 100);
+
+        logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(wr_bsc)) {
+                assertEq(logs[i].topics.length, 4);
+                assertEq(
+                    logs[i].topics[0],
+                    keccak256(
+                        abi.encodePacked(
+                            "Delivery(address,uint16,uint64,bytes32,uint8,uint256,uint8,bytes,bytes)"
+                        )
+                    )
+                );
+                assertEq(
+                    bytes32(uint256(uint160(address(cct_bsc)))),
+                    logs[i].topics[1]
+                );
+                assertEq(
+                    bytes32(uint256(uint16(w_eth.chainId()))),
+                    logs[i].topics[2]
+                );
+                assertEq(bytes32(uint256(sequence)), logs[i].topics[3]);
+                (bytes32 deliveryVaaHash, uint8 status, uint256 gasUsed, , , ) = abi.decode(
+                    logs[i].data,
+                    (bytes32, uint8, uint256, uint8, bytes, bytes)
+                );
+                console.log("CCT's gasUsed = ", gasUsed);
+                assertEq(deliveryVaaHash, h);
+                assertEq(
+                    status,
+                    uint8(IWormholeRelayerDelivery.DeliveryStatus.SUCCESS)
+                );
+            } else if (
+                logs[i].emitter == address(cct_bsc) &&
+                logs[i].topics[0] ==
+                keccak256(
+                    abi.encodePacked("TokenReceived(address,uint16,uint256)")
+                )
+            ) {
+                assertEq(bytes32(uint256(uint160(alice))), logs[i].topics[1]);
+                assertEq(
+                    bytes32(uint256(uint16(w_eth.chainId()))),
+                    logs[i].topics[2]
+                );
+                (uint256 _amount) = abi.decode(logs[i].data, (uint256));
+                assertEq(_amount, 100);
+            }
+        }
+        // Deliver on BSC ------------------------------------------------------------
+
+        
     }
 }

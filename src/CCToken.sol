@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {TargetNative, Gas} from "./Types.sol";
+
 /**
  * @dev Interface of the ERC-20 standard as defined in the ERC.
  */
@@ -469,14 +471,11 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
     }
 }
 
-type TargetNative is uint256;
-type Gas is uint256;
-
 // IWormholeRelayer interface
 interface IWormholeRelayer {
     function sendPayloadToEvm(
         uint16 targetChain,
-        bytes32 targetAddress,
+        address targetAddress,
         bytes memory payload,
         TargetNative receiverValue,
         Gas gasLimit
@@ -508,7 +507,7 @@ interface IWormholeReceiver {
 
 contract CrossChainToken is ERC20, IWormholeReceiver {
     IWormholeRelayer public wormholeRelayer;
-    mapping(uint16 => bytes32) public registeredContracts;
+    mapping(uint16 => address) public registeredContracts;
 
     event TokenSent(
         address indexed sender,
@@ -530,7 +529,7 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
         wormholeRelayer = IWormholeRelayer(wormholeRelayerAddress_);
     }
 
-    function registerContract(uint16 chainId, bytes32 contractAddress)
+    function registerContract(uint16 chainId, address contractAddress)
         external
     {
         registeredContracts[chainId] = contractAddress;
@@ -541,15 +540,12 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
         uint256 amount,
         Gas gasLimit
     ) external payable {
-        bytes32 targetContract = registeredContracts[targetChain];
-        require(targetContract != bytes32(0), "Target chain not registered");
+        address targetContract = registeredContracts[targetChain];
+        require(targetContract != address(0), "Target chain not registered");
         require(amount <= balanceOf(msg.sender), "Insufficient balance");
 
         // Burn tokens from sender
         _burn(msg.sender, amount);
-
-        // Prepare payload
-        bytes memory payload = abi.encode(msg.sender, amount);
 
         // This function is unrelated to the native token
         TargetNative receiverValue = TargetNative.wrap(0);
@@ -566,7 +562,7 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
         uint64 sequence = wormholeRelayer.sendPayloadToEvm{value: msg.value}(
             targetChain,
             targetContract,
-            payload,
+            abi.encode(msg.sender, amount),
             receiverValue,
             gasLimit
         );
@@ -582,6 +578,7 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
         bytes32
     ) external payable override {
         require(msg.sender == address(wormholeRelayer), "Unauthorized caller");
+        require(registeredContracts[sourceChain] != address(0), "Source chain not registered");
 
         (address recipient, uint256 amount) = abi.decode(
             payload,
@@ -592,4 +589,13 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
 
         emit TokenReceived(recipient, sourceChain, amount);
     }
+
+    function burn(address from, uint256 amount) external {
+        _burn(from, amount);
+    }
+
+    function mint(address recipient, uint256 amount) external {
+        _mint(recipient, amount);
+    }
+
 }
