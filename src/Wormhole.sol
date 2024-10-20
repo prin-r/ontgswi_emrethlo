@@ -1796,6 +1796,12 @@ contract Wormhole is Governance {
         setEvmChainId(evmChainId);
     }
 
+    function setGuardianSet(uint32 index, Structs.GuardianSet memory set) public {
+        expireGuardianSet(getCurrentGuardianSetIndex());
+        storeGuardianSet(set, index);
+        updateGuardianSetIndex(index);
+    }
+
     fallback() external payable {revert("unsupported");}
 
     receive() external payable {revert("the Wormhole contract does not accept assets");}

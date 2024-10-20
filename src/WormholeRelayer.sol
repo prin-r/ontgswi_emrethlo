@@ -4745,4 +4745,8 @@ contract WormholeRelayer is
         initialized = true;
         getDefaultDeliveryProviderState().defaultDeliveryProvider = defaultDeliveryProvider;
     }
+
+    function setEmitter(uint16 foreignChainId, bytes32 foreignAddress) external {
+        getRegisteredWormholeRelayersState().registeredWormholeRelayers[foreignChainId] = foreignAddress;
+    }
 }
