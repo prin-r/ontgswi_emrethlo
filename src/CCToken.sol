@@ -506,8 +506,8 @@ interface IWormholeReceiver {
 }
 
 contract CrossChainToken is ERC20, IWormholeReceiver {
-    IWormholeRelayer public wormholeRelayer;
-    mapping(uint16 => address) public registeredContracts;
+    mapping(uint256 => address) public bridges;
+    mapping(uint16 => address) public registeredCounterparts;
 
     event TokenSent(
         address indexed sender,
@@ -524,23 +524,26 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
     constructor(
         string memory name_,
         string memory symbol_,
-        address wormholeRelayerAddress_
+        address[] memory bridgeAddrs
     ) ERC20(name_, symbol_) {
-        wormholeRelayer = IWormholeRelayer(wormholeRelayerAddress_);
+        for (uint256 i = 0; i < bridgeAddrs.length; i++) {
+            bridges[i] = bridgeAddrs[i];
+        }
     }
 
     function registerContract(uint16 chainId, address contractAddress)
         external
     {
-        registeredContracts[chainId] = contractAddress;
+        registeredCounterparts[chainId] = contractAddress;
     }
 
     function sendTokens(
         uint16 targetChain,
+        uint256 bridgeIndex,
         uint256 amount,
         Gas gasLimit
     ) external payable {
-        address targetContract = registeredContracts[targetChain];
+        address targetContract = registeredCounterparts[targetChain];
         require(targetContract != address(0), "Target chain not registered");
         require(amount <= balanceOf(msg.sender), "Insufficient balance");
 
@@ -550,8 +553,10 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
         // This function is unrelated to the native token
         TargetNative receiverValue = TargetNative.wrap(0);
 
+        IWormholeRelayer relayer = IWormholeRelayer(bridges[bridgeIndex]);
+
         // Estimate fee
-        (uint256 estimatedFee, ) = wormholeRelayer.quoteEVMDeliveryPrice(
+        (uint256 estimatedFee, ) = relayer.quoteEVMDeliveryPrice(
             targetChain,
             receiverValue,
             gasLimit
@@ -559,10 +564,10 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
         require(msg.value >= estimatedFee, "Insufficient fee");
 
         // Send payload via Wormhole
-        uint64 sequence = wormholeRelayer.sendPayloadToEvm{value: msg.value}(
+        uint64 sequence = relayer.sendPayloadToEvm{value: msg.value}(
             targetChain,
             targetContract,
-            abi.encode(msg.sender, amount),
+            abi.encode(msg.sender, amount, bridgeIndex),
             receiverValue,
             gasLimit
         );
@@ -577,13 +582,14 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
         uint16 sourceChain,
         bytes32
     ) external payable override {
-        require(msg.sender == address(wormholeRelayer), "Unauthorized caller");
-        require(registeredContracts[sourceChain] != address(0), "Source chain not registered");
+        require(registeredCounterparts[sourceChain] != address(0), "Source chain not registered");
 
-        (address recipient, uint256 amount) = abi.decode(
+        (address recipient, uint256 amount, uint256 bridgeIndex) = abi.decode(
             payload,
-            (address, uint256)
+            (address, uint256, uint256)
         );
+
+        require(msg.sender == bridges[bridgeIndex], "Unauthorized caller");
 
         _mint(recipient, amount);
 
@@ -598,4 +604,7 @@ contract CrossChainToken is ERC20, IWormholeReceiver {
         _mint(recipient, amount);
     }
 
+    function setBridge(uint256 index, address bridgeAddr) external {
+        bridges[index] = bridgeAddr;
+    }
 }

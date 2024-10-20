@@ -112,6 +112,8 @@ contract WHTest is Test {
         vm.label(alice, "Alice");
         vm.deal(alice, 100 ether);
 
+        address[] memory bridges = new address[](1);
+
         for (uint256 i = 1; i <= 19; i++) {
             pks.push(i);
         }
@@ -124,11 +126,8 @@ contract WHTest is Test {
         dp_eth.setMultiple(2, 4);
         wr_eth = new WormholeRelayer(address(w_eth));
         wr_eth.initialize(address(dp_eth));
-        cct_eth = new CrossChainToken(
-            "CrossChainToken",
-            "CCT",
-            address(wr_eth)
-        );
+        bridges[0] = address(wr_eth);
+        cct_eth = new CrossChainToken("CrossChainToken", "CCT", bridges);
 
         w_bsc = new Wormhole();
         w_bsc.setChainIDs(4, 56);
@@ -138,11 +137,8 @@ contract WHTest is Test {
         dp_bsc.setMultiple(4, 2);
         wr_bsc = new WormholeRelayer(address(w_bsc));
         wr_bsc.initialize(address(dp_bsc));
-        cct_bsc = new CrossChainToken(
-            "CrossChainToken",
-            "CCT",
-            address(wr_bsc)
-        );
+        bridges[0] = address(wr_bsc);
+        cct_bsc = new CrossChainToken("CrossChainToken", "CCT", bridges);
 
         wr_eth.setEmitter(uint16(4), bytes32(uint256(uint160(address(w_bsc)))));
         cct_eth.registerContract(4, address(cct_bsc));
@@ -542,16 +538,18 @@ contract WHTest is Test {
         uint256 gg;
         // Send on ETH ------------------------------------------------------------
         uint16 targetChain = 4;
+        uint256 bridgeIndex = 0;
         uint256 gasLimit = 60_000;
 
         assertEq(cct_eth.balanceOf(alice), 200);
-        assertEq(address(cct_eth.wormholeRelayer()), address(wr_eth));
+        assertEq(address(cct_eth.bridges(0)), address(wr_eth));
 
         vm.prank(alice);
         vm.recordLogs();
         gg = gasleft();
         cct_eth.sendTokens{value: gasLimit}(
             targetChain,
+            bridgeIndex,
             100,
             Gas.wrap(gasLimit)
         );
@@ -689,13 +687,14 @@ contract WHTest is Test {
         gasLimit = 60_000;
 
         assertEq(cct_bsc.balanceOf(alice), 100);
-        assertEq(address(cct_bsc.wormholeRelayer()), address(wr_bsc));
+        assertEq(address(cct_bsc.bridges(0)), address(wr_bsc));
 
         vm.prank(alice);
         vm.recordLogs();
         gg = gasleft();
         cct_bsc.sendTokens{value: gasLimit}(
             targetChain,
+            bridgeIndex,
             50,
             Gas.wrap(gasLimit)
         );
