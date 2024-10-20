@@ -3,15 +3,18 @@ pragma solidity ^0.8.13;
 
 import {Test, console, Vm} from "forge-std/Test.sol";
 import "../src/Types.sol";
-import {WormholeRelayer, DeliveryInstruction} from "../src/WormholeRelayer.sol";
+import {WormholeRelayer} from "../src/WormholeRelayer.sol";
 import {Wormhole, Structs} from "../src/Wormhole.sol";
 import {DeliveryProvider} from "../src/DeliveryProvider.sol";
+import {CrossChainToken} from "../src/CCToken.sol";
 
 contract WHTest is Test {
+    CrossChainToken public cct_eth;
     WormholeRelayer public wr_eth;
     Wormhole public w_eth;
     DeliveryProvider public dp_eth;
 
+    CrossChainToken public cct_bsc;
     WormholeRelayer public wr_bsc;
     Wormhole public w_bsc;
     DeliveryProvider public dp_bsc;
@@ -74,33 +77,21 @@ contract WHTest is Test {
         uint32 guardianSetIndex,
         Structs.Signature[] memory signatures
     ) public pure returns (bytes memory enc) {
-        // Start encoding with the version (1 byte)
-        enc = abi.encodePacked(version); // uint8: 1 byte
-
-        // Append guardianSetIndex (uint32: 4 bytes)
+        enc = abi.encodePacked(version);
         enc = abi.encodePacked(enc, guardianSetIndex);
+        enc = abi.encodePacked(enc, uint8(signatures.length));
 
-        // Append the length of signatures (uint8: 1 byte)
-        uint8 signaturesLength = uint8(signatures.length);
-        enc = abi.encodePacked(enc, signaturesLength);
-
-        // Encode each signature
         for (uint i = 0; i < signatures.length; i++) {
             Structs.Signature memory sig = signatures[i];
-
-            // Adjust v to be (v - 27), as per the Python code
-            uint8 vMinus27 = sig.v - 27;
-
             enc = abi.encodePacked(
                 enc,
-                sig.guardianIndex, // uint8: 1 byte
-                sig.r, // bytes32: 32 bytes
-                sig.s, // bytes32: 32 bytes
-                vMinus27 // uint8: 1 byte
+                sig.guardianIndex,
+                sig.r,
+                sig.s,
+                sig.v - 27
             );
         }
 
-        // Encode the last part and compute the hash
         (, bytes memory lastPart) = encodeLastPartWithHash(
             timestamp,
             nonce,
@@ -111,36 +102,7 @@ contract WHTest is Test {
             payload
         );
 
-        // Append the last part to the encoding
         enc = abi.encodePacked(enc, lastPart);
-    }
-
-    // uint16 targetChain, bytes32 targetAddress, bytes memory payload,
-
-    function encode(
-        DeliveryInstruction memory strct
-    ) private pure returns (bytes memory encoded) {
-        encoded = abi.encodePacked(
-            uint8(1),
-            strct.targetChain,
-            strct.targetAddress,
-            abi.encodePacked(uint32(strct.payload.length), strct.payload),
-            uint256(0),
-            uint256(0)
-        );
-        encoded = abi.encodePacked(
-            encoded,
-            abi.encodePacked(
-                uint32(strct.encodedExecutionInfo.length),
-                strct.encodedExecutionInfo
-            ),
-            strct.refundChain,
-            strct.refundAddress,
-            strct.refundDeliveryProvider,
-            strct.sourceDeliveryProvider,
-            strct.senderAddress,
-            abi.encodePacked(uint8(0))
-        );
     }
 
     function setUp() public {
@@ -162,6 +124,11 @@ contract WHTest is Test {
         dp_eth.setChainSupportedPub(4, true);
         wr_eth = new WormholeRelayer(address(w_eth));
         wr_eth.initialize(address(dp_eth));
+        cct_eth = new CrossChainToken(
+            "CrossChainToken",
+            "CCT",
+            address(wr_eth)
+        );
 
         w_bsc = new Wormhole();
         w_bsc.setChainIDs(4, 56);
@@ -177,6 +144,14 @@ contract WHTest is Test {
         dp_bsc.setChainSupportedPub(2, true);
         wr_bsc = new WormholeRelayer(address(w_bsc));
         wr_bsc.initialize(address(dp_bsc));
+        cct_bsc = new CrossChainToken(
+            "CrossChainToken",
+            "CCT",
+            address(wr_bsc)
+        );
+
+        wr_bsc.setEmitter(uint16(2), bytes32(uint256(uint160(address(w_eth)))));
+        wr_eth.setEmitter(uint16(4), bytes32(uint256(uint160(address(w_bsc)))));
     }
 
     function test_querying_fees() public view {
@@ -462,8 +437,8 @@ contract WHTest is Test {
         assertEq(valid, true);
     }
 
-    function test_deliver() public {
-        // Logging ------------------------------------------------------------
+    function test_send_and_deliver() public {
+        // Send ------------------------------------------------------------
         uint16 targetChain = 4;
         address targetAddress = 0xaD5db72456E417bb51d9e89425e6B2b9602dfc78;
         TargetNative receiverValue = TargetNative.wrap(0);
@@ -477,6 +452,9 @@ contract WHTest is Test {
             receiverValue,
             gasLimit
         );
+        // Send ------------------------------------------------------------
+
+        // off-chain ------------------------------------------------------------
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes memory logData;
         for (uint256 i = 0; i < logs.length; i++) {
@@ -517,7 +495,9 @@ contract WHTest is Test {
             signatures
         );
 
-        wr_bsc.setEmitter(uint16(2), bytes32(uint256(uint160(address(w_eth)))));
+        // off-chain ------------------------------------------------------------
+
+        // Deliver ------------------------------------------------------------
 
         wr_bsc.deliver{value: 100000}(
             new bytes[](0),
@@ -525,5 +505,7 @@ contract WHTest is Test {
             payable(address(0)),
             hex""
         );
+
+        // Deliver ------------------------------------------------------------
     }
 }
