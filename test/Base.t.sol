@@ -110,7 +110,7 @@ contract WHTest is Test {
     function setUp() public {
         alice = address(0xaa);
         vm.label(alice, "Alice");
-        vm.deal(alice, 10 ether);
+        vm.deal(alice, 100 ether);
 
         for (uint256 i = 1; i <= 19; i++) {
             pks.push(i);
@@ -121,13 +121,7 @@ contract WHTest is Test {
         w_eth.initialize();
         w_eth.setGuardianSet(0, gen_guardian_set(type(uint32).max));
         dp_eth = new DeliveryProvider();
-        dp_eth.setAssetConversionBufferPub(4, 0, 1);
-        dp_eth.setAssetConversionBufferPub(2, 0, 1);
-        dp_eth.setPriceInfoPub(2, GasPrice.wrap(1), WeiPrice.wrap(1));
-        dp_eth.setPriceInfoPub(4, GasPrice.wrap(1), WeiPrice.wrap(1));
-        dp_eth.setChainIdPub(2);
-        dp_eth.setMaximumBudgetPub(4, Wei.wrap(1e18));
-        dp_eth.setChainSupportedPub(4, true);
+        dp_eth.setMultiple(2, 4);
         wr_eth = new WormholeRelayer(address(w_eth));
         wr_eth.initialize(address(dp_eth));
         cct_eth = new CrossChainToken(
@@ -141,13 +135,7 @@ contract WHTest is Test {
         w_bsc.initialize();
         w_bsc.setGuardianSet(0, gen_guardian_set(type(uint32).max));
         dp_bsc = new DeliveryProvider();
-        dp_bsc.setAssetConversionBufferPub(4, 0, 1);
-        dp_bsc.setAssetConversionBufferPub(2, 0, 1);
-        dp_bsc.setPriceInfoPub(2, GasPrice.wrap(1), WeiPrice.wrap(1));
-        dp_bsc.setPriceInfoPub(4, GasPrice.wrap(1), WeiPrice.wrap(1));
-        dp_bsc.setChainIdPub(4);
-        dp_bsc.setMaximumBudgetPub(2, Wei.wrap(1e18));
-        dp_bsc.setChainSupportedPub(2, true);
+        dp_bsc.setMultiple(4, 2);
         wr_bsc = new WormholeRelayer(address(w_bsc));
         wr_bsc.initialize(address(dp_bsc));
         cct_bsc = new CrossChainToken(

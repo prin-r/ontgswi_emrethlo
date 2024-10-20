@@ -3479,6 +3479,16 @@ contract DeliveryProvider is DeliveryProviderGovernance, IDeliveryProvider {
       setChainSupported(targetChain, isSupported);
     }
 
+    function setMultiple(uint16 thisChainID, uint16 otherChainID) public {
+      setChainIdPub(thisChainID);
+      setAssetConversionBufferPub(thisChainID, 0, 1);
+      setAssetConversionBufferPub(otherChainID, 0, 1);
+      setPriceInfoPub(thisChainID, GasPrice.wrap(1), WeiPrice.wrap(1));
+      setPriceInfoPub(otherChainID, GasPrice.wrap(1), WeiPrice.wrap(1));
+      setMaximumBudgetPub(otherChainID, Wei.wrap(1e18));
+      setChainSupportedPub(otherChainID, true);
+    }
+
 }
 
 // contract DeliveryProviderImplementation is DeliveryProvider {
