@@ -5,6 +5,7 @@ import {Test, console, Vm} from "forge-std/Test.sol";
 import "../src/Types.sol";
 import {WormholeRelayer, IWormholeRelayerDelivery} from "../src/WormholeRelayer.sol";
 import {Wormhole, Structs} from "../src/Wormhole.sol";
+import {WormholeCom, StructsCom} from "../src/WormholeCom.sol";
 import {DeliveryProvider} from "../src/DeliveryProvider.sol";
 import {CrossChainToken} from "../src/CCToken.sol";
 
@@ -13,12 +14,16 @@ contract WHTest is Test {
 
     CrossChainToken public cct_eth;
     WormholeRelayer public wr_eth;
+    WormholeRelayer public wrcom_eth;
     Wormhole public w_eth;
+    WormholeCom public wcom_eth;
     DeliveryProvider public dp_eth;
 
     CrossChainToken public cct_bsc;
     WormholeRelayer public wr_bsc;
+    WormholeRelayer public wrcom_bsc;
     Wormhole public w_bsc;
+    WormholeCom public wcom_bsc;
     DeliveryProvider public dp_bsc;
 
     uint256[] public pks;
@@ -112,38 +117,64 @@ contract WHTest is Test {
         vm.label(alice, "Alice");
         vm.deal(alice, 100 ether);
 
-        address[] memory bridges = new address[](1);
+        address[] memory bridges = new address[](2);
 
         for (uint256 i = 1; i <= 19; i++) {
             pks.push(i);
         }
 
+        wcom_eth = new WormholeCom();
+        wcom_eth.setChainIDs(2, 1);
+        wcom_eth.initialize();
+        wcom_eth.setGuardianSet(28, 0, 0x5fe055a80305da76a999c83a4bc19f26b498bb2424874138eccd8dee9a2b5c4e, type(uint32).max);
+
         w_eth = new Wormhole();
         w_eth.setChainIDs(2, 1);
         w_eth.initialize();
         w_eth.setGuardianSet(0, gen_guardian_set(type(uint32).max));
+
         dp_eth = new DeliveryProvider();
         dp_eth.setMultiple(2, 4);
+
         wr_eth = new WormholeRelayer(address(w_eth));
         wr_eth.initialize(address(dp_eth));
+
+        wrcom_eth = new WormholeRelayer(address(wcom_eth));
+        wrcom_eth.initialize(address(dp_eth));
+
         bridges[0] = address(wr_eth);
+        bridges[1] = address(wrcom_eth);
         cct_eth = new CrossChainToken("CrossChainToken", "CCT", bridges);
+
+        wcom_bsc = new WormholeCom();
+        wcom_bsc.setChainIDs(2, 1);
+        wcom_bsc.initialize();
+        wcom_bsc.setGuardianSet(28, 0, 0x5fe055a80305da76a999c83a4bc19f26b498bb2424874138eccd8dee9a2b5c4e, type(uint32).max);
 
         w_bsc = new Wormhole();
         w_bsc.setChainIDs(4, 56);
         w_bsc.initialize();
         w_bsc.setGuardianSet(0, gen_guardian_set(type(uint32).max));
+
         dp_bsc = new DeliveryProvider();
         dp_bsc.setMultiple(4, 2);
+        
         wr_bsc = new WormholeRelayer(address(w_bsc));
         wr_bsc.initialize(address(dp_bsc));
+
+        wrcom_bsc = new WormholeRelayer(address(wcom_bsc));
+        wrcom_bsc.initialize(address(dp_bsc));
+
         bridges[0] = address(wr_bsc);
+        bridges[1] = address(wrcom_bsc);
         cct_bsc = new CrossChainToken("CrossChainToken", "CCT", bridges);
 
         wr_eth.setEmitter(uint16(4), bytes32(uint256(uint160(address(w_bsc)))));
+        wrcom_eth.setEmitter(uint16(4), bytes32(uint256(uint160(address(wcom_bsc)))));
         cct_eth.registerContract(4, address(cct_bsc));
 
         wr_bsc.setEmitter(uint16(2), bytes32(uint256(uint160(address(w_eth)))));
+        wrcom_bsc.setEmitter(uint16(2), bytes32(uint256(uint160(address(wcom_eth)))));
         cct_bsc.registerContract(2, address(cct_eth));
 
         cct_eth.mint(alice, 200);

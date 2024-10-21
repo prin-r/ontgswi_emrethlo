@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.0;
 
-interface Structs {
+interface StructsCom {
 	struct Provider {
 		uint16 chainId;
 		uint16 governanceChainId;
@@ -349,7 +349,7 @@ contract Events {
 
 contract Storage {
     struct WormholeState {
-        Structs.Provider provider;
+        StructsCom.Provider provider;
 
         // Mapping of guardian_set_index => hash(guardian set pubkey)
         mapping(uint32 => bytes32) guardianSets;
@@ -1274,7 +1274,7 @@ contract GovernanceStructs {
         uint8 guardianLength = encodedUpgrade.toUint8(index);
         index += 1;
 
-        // gsu.newGuardianSet = Structs.GuardianSet({
+        // gsu.newGuardianSet = StructsCom.GuardianSet({
         //     keys : new address[](guardianLength),
         //     expirationTime : 0
         // });
@@ -1358,7 +1358,7 @@ contract Messages is Getters {
     using BytesLib for bytes;
 
     /// @dev parseAndVerifyVM serves to parse an encodedVM and wholy validate it for consumption
-    function parseAndVerifyVM(bytes calldata encodedVM) public view returns (Structs.VM memory vm, bool valid, string memory reason) {
+    function parseAndVerifyVM(bytes calldata encodedVM) public view returns (StructsCom.VM memory vm, bool valid, string memory reason) {
         vm = parseVM(encodedVM);
         (valid, reason) = verifyVM(vm);
     }
@@ -1370,7 +1370,7 @@ contract Messages is Getters {
     *  - it aims to ensure the VM has reached quorum
     *  - it aims to verify the signatures provided against the guardianSet
     */
-    function verifyVM(Structs.VM memory vm) public view returns (bool valid, string memory reason) {
+    function verifyVM(StructsCom.VM memory vm) public view returns (bool valid, string memory reason) {
         /// @dev Obtain the current guardianSet for the guardianSetIndex provided
         bytes32 guardianSet = getGuardianSet(vm.guardianSetIndex);
         uint256 expirationTimestamp = getGuardianSetsExpiration(
@@ -1452,7 +1452,7 @@ contract Messages is Getters {
      * @dev parseVM serves to parse an encodedVM into a vm struct
      *  - it intentionally performs no validation functions, it simply parses raw into a struct
      */
-    function parseVM(bytes memory encodedVM) public pure virtual returns (Structs.VM memory vm) {
+    function parseVM(bytes memory encodedVM) public pure virtual returns (StructsCom.VM memory vm) {
         uint index = 0;
 
         vm.version = encodedVM.toUint8(index);
@@ -1536,7 +1536,7 @@ abstract contract Governance is GovernanceStructs, Messages, Setters, ERC1967Upg
     function submitContractUpgrade(bytes memory _vm) public {
         require(!isFork(), "invalid fork");
 
-        Structs.VM memory vm = parseVM(_vm);
+        StructsCom.VM memory vm = parseVM(_vm);
 
         // Verify the VAA is valid before processing it
         (bool isValid, string memory reason) = verifyGovernanceVM(vm);
@@ -1561,7 +1561,7 @@ abstract contract Governance is GovernanceStructs, Messages, Setters, ERC1967Upg
      * @dev Sets a `messageFee` via Governance VAA/VM
      */
     function submitSetMessageFee(bytes memory _vm) public {
-        Structs.VM memory vm = parseVM(_vm);
+        StructsCom.VM memory vm = parseVM(_vm);
 
         // Verify the VAA is valid before processing it
         (bool isValid, string memory reason) = verifyGovernanceVM(vm);
@@ -1586,7 +1586,7 @@ abstract contract Governance is GovernanceStructs, Messages, Setters, ERC1967Upg
      * @dev Deploys a new `guardianSet` via Governance VAA/VM
      */
     function submitNewGuardianSet(bytes memory _vm) public {
-        Structs.VM memory vm = parseVM(_vm);
+        StructsCom.VM memory vm = parseVM(_vm);
 
         // Verify the VAA is valid before processing it
         (bool isValid, string memory reason) = verifyGovernanceVM(vm);
@@ -1620,7 +1620,7 @@ abstract contract Governance is GovernanceStructs, Messages, Setters, ERC1967Upg
      * @dev Submits transfer fees to the recipient via Governance VAA/VM
      */
     function submitTransferFees(bytes memory _vm) public {
-        Structs.VM memory vm = parseVM(_vm);
+        StructsCom.VM memory vm = parseVM(_vm);
 
         // Verify the VAA is valid before processing it
         (bool isValid, string memory reason) = verifyGovernanceVM(vm);
@@ -1651,7 +1651,7 @@ abstract contract Governance is GovernanceStructs, Messages, Setters, ERC1967Upg
     function submitRecoverChainId(bytes memory _vm) public {
         require(isFork(), "not a fork");
 
-        Structs.VM memory vm = parseVM(_vm);
+        StructsCom.VM memory vm = parseVM(_vm);
 
         // Verify the VAA is valid before processing it
         (bool isValid, string memory reason) = verifyGovernanceVM(vm);
@@ -1692,7 +1692,7 @@ abstract contract Governance is GovernanceStructs, Messages, Setters, ERC1967Upg
     /**
      * @dev Verifies a Governance VAA/VM is valid
      */
-    function verifyGovernanceVM(Structs.VM memory vm) internal view returns (bool, string memory){
+    function verifyGovernanceVM(StructsCom.VM memory vm) internal view returns (bool, string memory){
         // Verify the VAA is valid
         (bool isValid, string memory reason) = verifyVM(vm);
         if (!isValid){
@@ -1727,7 +1727,7 @@ abstract contract Governance is GovernanceStructs, Messages, Setters, ERC1967Upg
 
 pragma experimental ABIEncoderV2;
 
-contract Wormhole is Governance {
+contract WormholeCom is Governance {
     event LogMessagePublished(address indexed sender, uint64 sequence, uint32 nonce, bytes payload, uint8 consistencyLevel);
 
     // Publish a message to be attested by the Wormhole network
