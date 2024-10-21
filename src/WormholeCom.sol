@@ -9,6 +9,29 @@ interface StructsCom {
 		bytes32 governanceContract;
 	}
 
+    struct Signature {
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        uint8 guardianIndex;
+    }
+
+    struct VMN {
+        uint8 version;
+        uint32 timestamp;
+        uint32 nonce;
+        uint16 emitterChainId;
+        bytes32 emitterAddress;
+        uint64 sequence;
+        uint8 consistencyLevel;
+        bytes payload;
+
+        uint32 guardianSetIndex;
+        Signature[] signatures;
+
+        bytes32 hash;
+    }
+
 	struct VM {
 		uint8 version;
 		uint32 timestamp;
@@ -1358,9 +1381,20 @@ contract Messages is Getters {
     using BytesLib for bytes;
 
     /// @dev parseAndVerifyVM serves to parse an encodedVM and wholy validate it for consumption
-    function parseAndVerifyVM(bytes calldata encodedVM) public view returns (StructsCom.VM memory vm, bool valid, string memory reason) {
-        vm = parseVM(encodedVM);
+    function parseAndVerifyVM(bytes calldata encodedVM) public view returns (StructsCom.VMN memory vmn, bool valid, string memory reason) {
+        StructsCom.VM memory vm = parseVM(encodedVM);
         (valid, reason) = verifyVM(vm);
+
+        vmn.version = vm.version;
+        vmn.timestamp = vm.timestamp;
+        vmn.nonce = vm.nonce;
+        vmn.emitterChainId = vm.emitterChainId;
+        vmn.emitterAddress = vm.emitterAddress;
+        vmn.sequence = vm.sequence;
+        vmn.consistencyLevel = vm.consistencyLevel;
+        vmn.payload = vm.payload;
+        vmn.guardianSetIndex = vm.guardianSetIndex;
+		vmn.hash = vm.hash;
     }
 
    /**
