@@ -822,7 +822,7 @@ contract WHTest is Test {
         uint256 gasLimit = 60_000;
 
         assertEq(cct_eth.balanceOf(alice), 200);
-        assertEq(address(cct_eth.bridges(0)), address(wr_eth));
+        assertEq(address(cct_eth.bridges(bridgeIndex)), address(wr_eth));
 
         vm.prank(alice);
         vm.recordLogs();
@@ -967,7 +967,7 @@ contract WHTest is Test {
         gasLimit = 60_000;
 
         assertEq(cct_bsc.balanceOf(alice), 100);
-        assertEq(address(cct_bsc.bridges(0)), address(wr_bsc));
+        assertEq(address(cct_bsc.bridges(bridgeIndex)), address(wr_bsc));
 
         vm.prank(alice);
         vm.recordLogs();
