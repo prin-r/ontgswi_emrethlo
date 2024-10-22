@@ -129,7 +129,7 @@ contract WHTest is Test {
         uint8 consistencyLevel,
         bytes memory payload,
         uint32 guardianSetIndex
-    ) public view returns (bytes32 h, bytes memory enc) {
+    ) public pure returns (bytes32 h, bytes memory enc) {
         bytes memory lastPart;
         enc = abi.encodePacked(version, guardianSetIndex);
         (h, lastPart) = encodeLastPartWithHash(
@@ -155,7 +155,7 @@ contract WHTest is Test {
 
     function genSigCom(
         bytes32 h
-    ) private view returns (address rAddress, uint256 s) {
+    ) private pure returns (address rAddress, uint256 s) {
         uint256 k = uint256(keccak256(abi.encode(h))) % N;
         rAddress = vm.addr(k);
         uint256 c = uint256(
@@ -268,7 +268,7 @@ contract WHTest is Test {
         assertEq(reason, "");
     }
 
-    function test_com_verifyVM() public {
+    function test_com_verifyVM() public view {
         bool valid;
         string memory reason;
         StructsCom.VM memory vm;
@@ -294,7 +294,7 @@ contract WHTest is Test {
         assertEq(reason, "");
     }
 
-    function test_com_parseAndVerifyVM() public {
+    function test_com_parseAndVerifyVM() public view {
         uint8 version = 1;
         uint32 timestamp = 1720525446;
         uint32 nonce = 0;
@@ -549,7 +549,7 @@ contract WHTest is Test {
         assertEq(vm.hash, h);
     }
 
-    function test_verifyVM() public {
+    function test_verifyVM() public view {
         Structs.VM memory vm;
         vm.version = 1;
         vm.timestamp = 1720525446;
@@ -569,7 +569,7 @@ contract WHTest is Test {
         assertEq(valid, true);
     }
 
-    function test_parseAndVerifyVM() public {
+    function test_parseAndVerifyVM() public view {
         uint8 version = 1;
         uint32 timestamp = 1720525446;
         uint32 nonce = 0;
